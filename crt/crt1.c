@@ -1,17 +1,18 @@
 #include <features.h>
 #include "libc.h"
 
-#define START "_start"
-
-#include "crt_arch.h"
-
 int main();
 weak void _init();
 weak void _fini();
 _Noreturn int __libc_start_main(int (*)(), int, char **,
 	void (*)(), void(*)(), void(*)());
 
-void _start_c(long *p)
+/*
+ * TRUSTY - renamed from _start_c because it can be invoked directly without an
+ * ASM stub. The stack will be aligned according to the ABI, and the argument
+ * will be in the expected register.
+ */
+void _start(long *p)
 {
 	int argc = p[0];
 	char **argv = (void *)(p+1);
