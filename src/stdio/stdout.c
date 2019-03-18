@@ -9,7 +9,8 @@ hidden FILE __stdout_FILE = {
 	.fd = 1,
 	.flags = F_PERM | F_NORD,
 	.lbf = '\n',
-	.write = __stdout_write,
+	/* TRUSTY - skip terminal size discovery. */
+	.write = __stdio_write,
 	.seek = __stdio_seek,
 	.close = __stdio_close,
 	.lock = -1,

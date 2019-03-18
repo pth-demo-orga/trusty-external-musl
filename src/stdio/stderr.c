@@ -2,13 +2,14 @@
 
 #undef stderr
 
-static unsigned char buf[UNGET];
+/* TRUSTY - buffer stderr to prevent log fragmentation. */
+static unsigned char buf[BUFSIZ+UNGET];
 hidden FILE __stderr_FILE = {
 	.buf = buf+UNGET,
-	.buf_size = 0,
+	.buf_size = sizeof buf-UNGET,
 	.fd = 2,
 	.flags = F_PERM | F_NORD,
-	.lbf = -1,
+	.lbf = '\n',
 	.write = __stdio_write,
 	.seek = __stdio_seek,
 	.close = __stdio_close,
