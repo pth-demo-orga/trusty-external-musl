@@ -1,8 +1,7 @@
 #include <stdlib.h>
-#include "syscall.h"
+#include <trusty_syscalls.h>
 
 _Noreturn void _Exit(int ec)
 {
-	__syscall(SYS_exit_group, ec);
-	for (;;) __syscall(SYS_exit, ec);
+	for (;;) _trusty_exit_etc(ec, 0);
 }
