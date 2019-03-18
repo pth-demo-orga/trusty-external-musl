@@ -7,7 +7,6 @@
 #include <limits.h>
 #include <sys/mman.h>
 #include "libc.h"
-#include "syscall.h"
 #include "atomic.h"
 #include "futex.h"
 
@@ -155,16 +154,13 @@ hidden int __timedwait_cp(volatile int *, int, clockid_t, const struct timespec 
 hidden void __wait(volatile int *, volatile int *, int, int);
 static inline void __wake(volatile void *addr, int cnt, int priv)
 {
-	if (priv) priv = FUTEX_PRIVATE;
-	if (cnt<0) cnt = INT_MAX;
-	__syscall(SYS_futex, addr, FUTEX_WAKE|priv, cnt) != -ENOSYS ||
-	__syscall(SYS_futex, addr, FUTEX_WAKE, cnt);
+	/* TRUSTY - no threads yet. */
+	a_crash();
 }
 static inline void __futexwait(volatile void *addr, int val, int priv)
 {
-	if (priv) priv = FUTEX_PRIVATE;
-	__syscall(SYS_futex, addr, FUTEX_WAIT|priv, val, 0) != -ENOSYS ||
-	__syscall(SYS_futex, addr, FUTEX_WAIT, val, 0);
+	/* TRUSTY - no threads yet. */
+	a_crash();
 }
 
 hidden void __acquire_ptc(void);
