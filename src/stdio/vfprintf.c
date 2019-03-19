@@ -11,6 +11,60 @@
 #include <math.h>
 #include <float.h>
 
+/*
+ * TRUSTY - long doubles are 128 bits on ARM 64, which drastically increases
+ * stack size and requires software emulation. To save resources, allow programs
+ * to specify the largest floating point type they will print with STDIO_FLOAT.
+ *    0: disabled
+ *   32: float
+ *   64: double
+ *  128: long double
+ * This is a bit of a lie. long doubles are not always 128 bits. This
+ * preprocessor does not make it easy to do this symbolically, however, so we
+ * lie.
+ */
+
+/* Default */
+#ifndef STDIO_FLOAT
+#define STDIO_FLOAT 0
+#endif
+
+/* Sanity check. */
+#if STDIO_FLOAT != 0 && STDIO_FLOAT != 32 && STDIO_FLOAT != 64 && STDIO_FLOAT != 128
+#error Invalid STDIO_FLOAT
+#endif
+
+/* Define these names in all cases, even if STDIO_FLOAT is invalid. */
+#if STDIO_FLOAT == 32
+typedef float stdio_float;
+#define STDIO_EPSILON FLT_EPSILON
+#define STDIO_FREXP frexpf
+#define STDIO_MAX_EXP FLT_MAX_EXP
+#define STDIO_MANT_DIG FLT_MANT_DIG
+#elif STDIO_FLOAT == 128
+typedef long double stdio_float;
+#define STDIO_EPSILON LDBL_EPSILON
+#define STDIO_FREXP frexpl
+#define STDIO_MAX_EXP LDBL_MAX_EXP
+#define STDIO_MANT_DIG LDBL_MANT_DIG
+#else
+typedef double stdio_float;
+#define STDIO_EPSILON DBL_EPSILON
+#define STDIO_FREXP frexp
+#define STDIO_MAX_EXP DBL_MAX_EXP
+#define STDIO_MANT_DIG DBL_MANT_DIG
+#endif
+
+/* TRUSTY - GNU extention that calls stderr, which can increase rodata size. */
+#ifndef STDIO_NO_FORMAT_M
+#define STDIO_NO_FORMAT_M 1
+#endif
+
+/* TRUSTY - Nonstandard wide character formatting. */
+#ifndef STDIO_NO_FORMAT_WIDE
+#define STDIO_NO_FORMAT_WIDE 1
+#endif
+
 /* Some useful macros */
 
 #define MAX(a,b) ((a)>(b) ? (a) : (b))
@@ -102,7 +156,7 @@ static const unsigned char states[]['z'-'A'+1] = {
 union arg
 {
 	uintmax_t i;
-	long double f;
+	stdio_float f;
 	void *p;
 };
 
@@ -125,8 +179,13 @@ static void pop_arg(union arg *arg, int type, va_list *ap)
 	break; case UMAX:	arg->i = va_arg(*ap, uintmax_t);
 	break; case PDIFF:	arg->i = va_arg(*ap, ptrdiff_t);
 	break; case UIPTR:	arg->i = (uintptr_t)va_arg(*ap, void *);
-	break; case DBL:	arg->f = va_arg(*ap, double);
+	break; case DBL:	arg->f = (stdio_float)va_arg(*ap, double);
+#if STDIO_FLOAT == 128
 	break; case LDBL:	arg->f = va_arg(*ap, long double);
+#else
+        /* Zero out to avoid software conversion. */
+        break; case LDBL:	va_arg(*ap, long double); arg->f = 0;
+#endif
 	}
 }
 
@@ -177,13 +236,15 @@ static char *fmt_u(uintmax_t x, char *s)
 typedef char compiler_defines_long_double_incorrectly[9-(int)sizeof(long double)];
 #endif
 
-static int fmt_fp(FILE *f, long double y, int w, int p, int fl, int t)
+/* TRUSTY - noinline to save stack space when floats are not printed. */
+__attribute__((__noinline__))
+static int fmt_fp(FILE *f, stdio_float y, int w, int p, int fl, int t)
 {
-	uint32_t big[(LDBL_MANT_DIG+28)/29 + 1          // mantissa expansion
-		+ (LDBL_MAX_EXP+LDBL_MANT_DIG+28+8)/9]; // exponent expansion
+	uint32_t big[(STDIO_MANT_DIG+28)/29 + 1          // mantissa expansion
+		+ (STDIO_MAX_EXP+STDIO_MANT_DIG+28+8)/9]; // exponent expansion
 	uint32_t *a, *d, *r, *z;
 	int e2=0, e, i, j, l;
-	char buf[9+LDBL_MANT_DIG/4], *s;
+	char buf[9+STDIO_MANT_DIG/4], *s;
 	const char *prefix="-0X+0X 0X-0x+0x 0x";
 	int pl;
 	char ebuf0[3*sizeof(int)], *ebuf=&ebuf0[3*sizeof(int)], *estr;
@@ -207,21 +268,21 @@ static int fmt_fp(FILE *f, long double y, int w, int p, int fl, int t)
 		return MAX(w, 3+pl);
 	}
 
-	y = frexpl(y, &e2) * 2;
+	y = STDIO_FREXP(y, &e2) * 2;
 	if (y) e2--;
 
 	if ((t|32)=='a') {
-		long double round = 8.0;
+		stdio_float round = 8.0;
 		int re;
 
 		if (t&32) prefix += 9;
 		pl += 2;
 
-		if (p<0 || p>=LDBL_MANT_DIG/4-1) re=0;
-		else re=LDBL_MANT_DIG/4-1-p;
+		if (p<0 || p>=STDIO_MANT_DIG/4-1) re=0;
+		else re=STDIO_MANT_DIG/4-1-p;
 
 		if (re) {
-			round *= 1<<(LDBL_MANT_DIG%4);
+			round *= 1<<(STDIO_MANT_DIG%4);
 			while (re--) round*=16;
 			if (*prefix=='-') {
 				y=-y;
@@ -268,7 +329,7 @@ static int fmt_fp(FILE *f, long double y, int w, int p, int fl, int t)
 	if (y) y *= 0x1p28, e2-=28;
 
 	if (e2<0) a=r=z=big;
-	else a=r=z=big+sizeof(big)/sizeof(*big) - LDBL_MANT_DIG - 1;
+	else a=r=z=big+sizeof(big)/sizeof(*big) - STDIO_MANT_DIG - 1;
 
 	do {
 		*z = y;
@@ -289,7 +350,7 @@ static int fmt_fp(FILE *f, long double y, int w, int p, int fl, int t)
 	}
 	while (e2<0) {
 		uint32_t carry=0, *b;
-		int sh=MIN(9,-e2), need=1+(p+LDBL_MANT_DIG/3U+8)/9;
+		int sh=MIN(9,-e2), need=1+(p+STDIO_MANT_DIG/3U+8)/9;
 		for (d=a; d<z; d++) {
 			uint32_t rm = *d & (1<<sh)-1;
 			*d = (*d>>sh) + carry;
@@ -311,15 +372,15 @@ static int fmt_fp(FILE *f, long double y, int w, int p, int fl, int t)
 	if (j < 9*(z-r-1)) {
 		uint32_t x;
 		/* We avoid C's broken division of negative numbers */
-		d = r + 1 + ((j+9*LDBL_MAX_EXP)/9 - LDBL_MAX_EXP);
-		j += 9*LDBL_MAX_EXP;
+		d = r + 1 + ((j+9*STDIO_MAX_EXP)/9 - STDIO_MAX_EXP);
+		j += 9*STDIO_MAX_EXP;
 		j %= 9;
 		for (i=10, j++; j<9; i*=10, j++);
 		x = *d % i;
 		/* Are there any significant digits past j? */
 		if (x || d+1!=z) {
-			long double round = 2/LDBL_EPSILON;
-			long double small;
+			stdio_float round = 2/STDIO_EPSILON;
+			stdio_float small;
 			if ((*d/i & 1) || (i==1000000000 && d>a && (d[-1]&1)))
 				round += 2;
 			if (x<i/2) small=0x0.8p0;
@@ -437,11 +498,13 @@ static int printf_core(FILE *f, const char *fmt, va_list *ap, union arg *nl_arg,
 	unsigned st, ps;
 	int cnt=0, l=0;
 	size_t i;
-	char buf[sizeof(uintmax_t)*3+3+LDBL_MANT_DIG/4];
+	char buf[sizeof(uintmax_t)*3+3+STDIO_MANT_DIG/4];
 	const char *prefix;
 	int t, pl;
+#if STDIO_NO_FORMAT_WIDE != 1
 	wchar_t wc[2], *ws;
 	char mb[4];
+#endif
 
 	for (;;) {
 		/* This error is only specified for snprintf, but since it's
@@ -588,7 +651,11 @@ static int printf_core(FILE *f, const char *fmt, va_list *ap, union arg *nl_arg,
 			fl &= ~ZERO_PAD;
 			break;
 		case 'm':
+#if STDIO_NO_FORMAT_M == 1
+			if (1) a = "(disabled)"; else
+#else
 			if (1) a = strerror(errno); else
+#endif
 		case 's':
 			a = arg.p ? arg.p : "(null)";
 			z = a + strnlen(a, p<0 ? INT_MAX : p);
@@ -596,6 +663,16 @@ static int printf_core(FILE *f, const char *fmt, va_list *ap, union arg *nl_arg,
 			p = z-a;
 			fl &= ~ZERO_PAD;
 			break;
+#if STDIO_NO_FORMAT_WIDE == 1
+		case 'C':
+		case 'S':
+			a = "(disabled)";
+			z = a + strnlen(a, p<0 ? INT_MAX : p);
+			if (p<0 && *z) goto overflow;
+			p = z-a;
+			fl &= ~ZERO_PAD;
+			break;
+#else
 		case 'C':
 			wc[0] = arg.i;
 			wc[1] = 0;
@@ -614,12 +691,22 @@ static int printf_core(FILE *f, const char *fmt, va_list *ap, union arg *nl_arg,
 			pad(f, ' ', w, p, fl^LEFT_ADJ);
 			l = w>p ? w : p;
 			continue;
+#endif
 		case 'e': case 'f': case 'g': case 'a':
 		case 'E': case 'F': case 'G': case 'A':
+#if STDIO_FLOAT == 0
+			a = "(disabled)";
+			z = a + strnlen(a, p<0 ? INT_MAX : p);
+			if (p<0 && *z) goto overflow;
+			p = z-a;
+			fl &= ~ZERO_PAD;
+			break;
+#else
 			if (xp && p<0) goto overflow;
 			l = fmt_fp(f, arg.f, w, p, fl, t);
 			if (l<0) goto overflow;
 			continue;
+#endif
 		}
 
 		if (p < z-a) p = z-a;
