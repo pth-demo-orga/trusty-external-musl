@@ -16,7 +16,7 @@ extern "C" {
 #define SEEK_END 2
 
 #ifdef __cplusplus
-#define NULL 0L
+#define NULL __null
 #else
 #define NULL ((void*)0)
 #endif
