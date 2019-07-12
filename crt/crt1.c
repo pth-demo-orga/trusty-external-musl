@@ -4,7 +4,7 @@
 int main();
 weak void _init();
 weak void _fini();
-_Noreturn int __libc_start_main(int (*)(), int, char **,
+int __libc_start_main(int (*)(), int, char **,
 	void (*)(), void(*)(), void(*)());
 
 /*

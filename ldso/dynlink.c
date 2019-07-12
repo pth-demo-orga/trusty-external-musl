@@ -86,7 +86,6 @@ struct dso {
 	size_t relro_start, relro_end;
 	uintptr_t *new_dtv;
 	unsigned char *new_tls;
-	volatile int new_dtv_idx, new_tls_idx;
 	struct td_index *td_index;
 	struct dso *fini_next;
 	char *shortname;
@@ -1126,9 +1125,9 @@ static struct dso *load_library(const char *name, struct dso *needed_by)
 		p->tls_id = ++tls_cnt;
 		tls_align = MAXP2(tls_align, p->tls.align);
 #ifdef TLS_ABOVE_TP
-		p->tls.offset = tls_offset + ( (tls_align-1) &
-			-(tls_offset + (uintptr_t)p->tls.image) );
-		tls_offset += p->tls.size;
+		p->tls.offset = tls_offset + ( (p->tls.align-1) &
+			(-tls_offset + (uintptr_t)p->tls.image) );
+		tls_offset = p->tls.offset + p->tls.size;
 #else
 		tls_offset += p->tls.size + p->tls.align - 1;
 		tls_offset -= (tls_offset + (uintptr_t)p->tls.image)
@@ -1645,7 +1644,7 @@ hidden void __dls2(unsigned char *base, size_t *sp)
  * so that loads of the thread pointer and &errno can be pure/const and
  * thereby hoistable. */
 
-_Noreturn void __dls2b(size_t *sp)
+void __dls2b(size_t *sp)
 {
 	/* Setup early thread pointer in builtin_tls for ldso/libc itself to
 	 * use during dynamic linking. If possible it will also serve as the
@@ -1666,7 +1665,7 @@ _Noreturn void __dls2b(size_t *sp)
  * process dependencies and relocations for the main application and
  * transfer control to its entry point. */
 
-_Noreturn void __dls3(size_t *sp)
+void __dls3(size_t *sp)
 {
 	static struct dso app, vdso;
 	size_t aux[AUX_CNT], *auxv;
@@ -1797,10 +1796,9 @@ _Noreturn void __dls3(size_t *sp)
 		app.tls_id = tls_cnt = 1;
 #ifdef TLS_ABOVE_TP
 		app.tls.offset = GAP_ABOVE_TP;
-		app.tls.offset += -GAP_ABOVE_TP & (app.tls.align-1);
-		tls_offset = app.tls.offset + app.tls.size
-			+ ( -((uintptr_t)app.tls.image + app.tls.size)
-			& (app.tls.align-1) );
+		app.tls.offset += (-GAP_ABOVE_TP + (uintptr_t)app.tls.image)
+			& (app.tls.align-1);
+		tls_offset = app.tls.offset + app.tls.size;
 #else
 		tls_offset = app.tls.offset = app.tls.size
 			+ ( -((uintptr_t)app.tls.image + app.tls.size)
@@ -2219,7 +2217,7 @@ int dladdr(const void *addr_arg, Dl_info *info)
 		}
 	}
 
-	if (bestsym && besterr > bestsym->st_size-1) {
+	if (best && besterr > bestsym->st_size-1) {
 		best = 0;
 		bestsym = 0;
 	}
