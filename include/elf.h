@@ -1045,6 +1045,9 @@ typedef struct {
 
 #define AT_MINSIGSTKSZ		51
 
+#ifdef HWASAN_ENABLED
+#define TRUSTY_AT_HWASAN_SHADOW	1000000
+#endif
 
 typedef struct {
   Elf32_Word n_namesz;
